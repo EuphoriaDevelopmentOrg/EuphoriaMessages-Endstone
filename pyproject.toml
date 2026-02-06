@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "endstone-euphoriamessages"
+version = "1.0.1"
+description = "Advanced join/leave messages for Endstone"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Rep Graphics" }]
+keywords = ["endstone", "plugin", "messages"]
+dependencies = []
+
+[project.optional-dependencies]
+mysql = ["mysql-connector-python"]
+
+[project.urls]
+Homepage = "https://github.com/EuphoriaDevelopmentOrg/EuphoriaMessages-PowerNukkitX"
+
+[project.entry-points."endstone"]
+euphoriamessages = "euphoriamessages:EuphoriaMessagesPlugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/euphoriamessages"]
+include = ["src/euphoriamessages/config.toml"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/euphoriamessages", "README.md", "pyproject.toml"]

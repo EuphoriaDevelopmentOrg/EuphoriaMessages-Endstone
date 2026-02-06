@@ -1,0 +1,128 @@
+# EuphoriaMessages Configuration File
+# Plugin version: 1.0.1
+
+[player-data]
+storage = "json"  # "json" or "mysql"
+
+[player-data.mysql]
+# Enable MySQL either by:
+#   1) setting player-data.storage = "mysql"
+#   2) setting this enabled flag to true
+enabled = false
+host = "127.0.0.1"
+port = 3306
+database = "euphoriamessages"
+user = "root"
+password = "change_me"
+table-prefix = "euphoriamessages_"
+connect-timeout = 5
+
+[welcome-messages]
+enabled = true
+broadcast-join = true
+broadcast-leave = true
+join-delay-ticks = 20
+default-join-message = "&a{player} has joined the server &7{count}"
+default-leave-message = "&c{player} has left the server &7{count}"
+
+[welcome-messages.logging]
+log-joins = false
+log-leaves = false
+log-first-joins = true
+log-feature-status = false
+
+[welcome-messages.first-join]
+enabled = true
+message = "&e&l* &6Welcome &e{player} &6to the server for the first time! &e&l*"
+
+[welcome-messages.player-count]
+enabled = true
+
+[welcome-messages.random-messages]
+enabled = false
+join-messages = [
+  "&a> &f{player} &ajoined the server! &7{count}",
+  "&a&l+ &f{player} &ais here! &7{count}",
+  "&aOK &f{player} &aconnected &7{count}",
+  "&a&l>> &f{player} &aentered the game &7{count}",
+]
+leave-messages = [
+  "&c> &f{player} &cleft the server &7{count}",
+  "&c&l- &f{player} &cis gone &7{count}",
+  "&cX &f{player} &cdisconnected &7{count}",
+  "&c&l<< &f{player} &cleft the game &7{count}",
+]
+
+[welcome-messages.rejoin-cooldown]
+enabled = true
+seconds = 10
+
+[welcome-messages.roles.admin]
+join-message = "&6&l[ADMIN] &e{player} &ahas joined the server"
+leave-message = "&6&l[ADMIN] &e{player} &chas left the server"
+
+[welcome-messages.roles.moderator]
+join-message = "&b&l[MOD] &3{player} &ahas joined the server"
+leave-message = "&b&l[MOD] &3{player} &chas left the server"
+
+[welcome-messages.roles.vip]
+join-message = "&d&l[VIP] &5{player} &ahas joined the server"
+leave-message = "&d&l[VIP] &5{player} &chas left the server"
+
+[welcome-messages.roles.builder]
+join-message = "&2&l[BUILDER] &a{player} &ahas joined the server"
+leave-message = "&2&l[BUILDER] &a{player} &chas left the server"
+
+[welcome-messages.roles.helper]
+join-message = "&9&l[HELPER] &1{player} &ahas joined the server"
+leave-message = "&9&l[HELPER] &1{player} &chas left the server"
+
+[advanced-features.time-based-greetings]
+enabled = true
+
+[advanced-features.join-statistics]
+enabled = true
+
+[advanced-features.welcome-back-timer]
+enabled = true
+
+[advanced-features.player-milestones]
+enabled = true
+join-milestones = [5, 10, 25, 50, 100, 250, 500]
+join-rewards = [
+  "/give {player} diamond 5",
+  "/give {player} diamond 10",
+  "/give {player} diamond 25",
+  "/give {player} emerald 10",
+  "/give {player} emerald 25",
+  "/give {player} netherite_ingot 5",
+  "/give {player} netherite_ingot 16",
+]
+playtime-milestones = [1, 5, 10, 24, 50, 100, 250]
+playtime-rewards = [
+  "/give {player} diamond 3",
+  "/give {player} diamond 10",
+  "/give {player} emerald 5",
+  "/give {player} emerald 15",
+  "/give {player} netherite_ingot 3",
+  "/give {player} netherite_ingot 10",
+  "/give {player} netherite_ingot 32",
+]
+
+[advanced-features.auto-announcements]
+enabled = true
+interval-minutes = 15
+messages = [
+  "&e&l[SERVER] &6Remember to vote for the server daily!",
+  "&e&l[SERVER] &6Join our Discord for updates and events!",
+  "&e&l[SERVER] &6Report bugs with /bug <description>",
+  "&e&l[SERVER] &6Currently &a{online}&6/&a{max} &6players online",
+  "&e&l[SERVER] &6Check out our store at &estore.example.com",
+  "&e&l[SERVER] &6Use &a/help &6for a list of commands",
+]
+
+[update-checker]
+enabled = true
+repository = "EuphoriaDevelopmentOrg/EuphoriaMessages-Endstone"
+interval-hours = 12
+notify-no-update = false
