@@ -2,6 +2,13 @@
 
 Advanced join/leave messages with roles, milestones, random variants, and auto announcements for Endstone servers.
 
+Current version: `1.0.4`
+
+## Requirements
+
+- Endstone `v0.11.0` or newer
+- Python `3.10` or newer
+
 ## Install
 
 1. Build or install the plugin:

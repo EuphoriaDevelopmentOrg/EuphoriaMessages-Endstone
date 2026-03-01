@@ -1,5 +1,5 @@
 # EuphoriaMessages Configuration File
-# Plugin version: 1.0.1
+# Plugin version: 1.0.2
 
 [player-data]
 storage = "json"  # "json" or "mysql"

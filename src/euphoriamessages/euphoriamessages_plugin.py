@@ -104,6 +104,15 @@ class EuphoriaMessagesCommandExecutor(CommandExecutor):
         if command.name != "euphoriamessages":
             return False
 
+        if not sender.has_permission("euphoriamessages.command"):
+            self._deny(
+                sender,
+                "euphoriamessages.command",
+                "base",
+                "You don't have permission to use this command.",
+            )
+            return True
+
         if len(args) == 0:
             self._plugin.send_help(sender)
             return True
@@ -112,7 +121,12 @@ class EuphoriaMessagesCommandExecutor(CommandExecutor):
 
         if subcommand == "reload":
             if not sender.has_permission("euphoriamessages.reload"):
-                sender.send_error_message("You don't have permission to reload the configuration.")
+                self._deny(
+                    sender,
+                    "euphoriamessages.reload",
+                    "reload",
+                    "You don't have permission to reload the configuration.",
+                )
                 return True
             self._plugin.reload_configuration()
             sender.send_message(colorize("&aEuphoriaMessages configuration reloaded successfully!"))
@@ -120,7 +134,12 @@ class EuphoriaMessagesCommandExecutor(CommandExecutor):
 
         if subcommand in {"broadcast", "bc"}:
             if not sender.has_permission("euphoriamessages.broadcast"):
-                sender.send_error_message("You don't have permission to broadcast messages.")
+                self._deny(
+                    sender,
+                    "euphoriamessages.broadcast",
+                    subcommand,
+                    "You don't have permission to broadcast messages.",
+                )
                 return True
             if len(args) < 2:
                 sender.send_error_message("Usage: /euphoriamessages broadcast <message>")
@@ -154,6 +173,16 @@ class EuphoriaMessagesCommandExecutor(CommandExecutor):
         sender.send_error_message("Unknown subcommand. Use /euphoriamessages help")
         return True
 
+    def _deny(
+        self,
+        sender: CommandSender,
+        permission: str,
+        subcommand: str,
+        message: str,
+    ) -> None:
+        sender.send_error_message(message)
+        self._plugin.track_command_permission_denied(sender, permission, subcommand)
+
 
 class WelcomeMessageListener:
     CLEANUP_INTERVAL_TICKS = 20 * 60 * 60  # 1 hour
@@ -177,6 +206,7 @@ class WelcomeMessageListener:
         self.role_join_messages: dict[str, str] = {}
         self.role_leave_messages: dict[str, str] = {}
         self.role_permission_cache: dict[str, str] = {}
+        self._role_match_cache: dict[str, Optional[str]] = {}
 
         self.first_join_enabled = True
         self.first_join_message = ""
@@ -1065,6 +1095,7 @@ class WelcomeMessageListener:
         self.role_join_messages.clear()
         self.role_leave_messages.clear()
         self.role_permission_cache.clear()
+        self._role_match_cache.clear()
 
         roles = _get_nested(config, ["welcome-messages", "roles"], {}) or {}
         if isinstance(roles, dict):
@@ -1080,7 +1111,7 @@ class WelcomeMessageListener:
 
                 role_name_lower = str(role_name).lower()
                 if role_name_lower not in {"op", "admin"}:
-                    self.role_permission_cache[str(role_name)] = (
+                    self.role_permission_cache[role_name_lower] = (
                         f"euphoriamessages.role.{role_name_lower}"
                     )
 
@@ -1095,6 +1126,7 @@ class WelcomeMessageListener:
     @event_handler(priority=EventPriority.HIGHEST)
     def on_player_join(self, event: PlayerJoinEvent) -> None:
         player = event.player
+        now_ms = int(time.time() * 1000)
         player_key = str(player.unique_id).lower()
         self._migrate_legacy_name_data(player)
         if self.player_names.get(player_key) != player.name:
@@ -1112,17 +1144,18 @@ class WelcomeMessageListener:
             self._dirty_players.add(player_key)
 
         previous_last_seen = self.player_last_seen.get(player_key)
-        self.session_start[player_key] = int(time.time() * 1000)
+        self.session_start[player_key] = now_ms
 
         on_cooldown = False
         if self.cooldown_enabled and not is_first_join:
             last_time = self.last_join_time.get(player_key)
             if last_time is not None:
-                time_since = (int(time.time() * 1000) - last_time) / 1000.0
+                time_since = (now_ms - last_time) / 1000.0
                 if time_since < self.cooldown_seconds:
                     on_cooldown = True
 
-        self.last_join_time[player_key] = int(time.time() * 1000)
+        self.last_join_time[player_key] = now_ms
+        self._role_match_cache.pop(player_key, None)
 
         if is_first_join:
             self.known_players.add(player_key)
@@ -1154,6 +1187,7 @@ class WelcomeMessageListener:
     @event_handler(priority=EventPriority.HIGHEST)
     def on_player_quit(self, event: PlayerQuitEvent) -> None:
         player = event.player
+        now_ms = int(time.time() * 1000)
         player_key = str(player.unique_id).lower()
         if self.player_names.get(player_key) != player.name:
             self.player_names[player_key] = player.name
@@ -1162,13 +1196,13 @@ class WelcomeMessageListener:
 
         session_start = self.session_start.pop(player_key, None)
         if session_start is not None:
-            session_time = int(time.time() * 1000) - session_start
+            session_time = now_ms - session_start
             total_playtime = self.player_total_playtime.get(player_key, 0)
             self.player_total_playtime[player_key] = total_playtime + max(session_time, 0)
             self._pending_player_data_save = True
             self._dirty_players.add(player_key)
 
-        self.player_last_seen[player_key] = int(time.time() * 1000)
+        self.player_last_seen[player_key] = now_ms
         self._pending_player_data_save = True
         self._dirty_players.add(player_key)
 
@@ -1206,23 +1240,45 @@ class WelcomeMessageListener:
             self._plugin.server.broadcast_message(formatted)
 
     def get_join_message_for_player(self, player: Player) -> str:
-        for role_name, role_message in self.role_join_messages.items():
-            if self.has_role(player, role_name):
+        matched_role = self._get_matched_role(player)
+        if matched_role is not None:
+            role_message = self.role_join_messages.get(matched_role)
+            if role_message:
                 return role_message
         return self.default_join_message
 
     def get_leave_message_for_player(self, player: Player) -> str:
-        for role_name, role_message in self.role_leave_messages.items():
-            if self.has_role(player, role_name):
+        matched_role = self._get_matched_role(player)
+        if matched_role is not None:
+            role_message = self.role_leave_messages.get(matched_role)
+            if role_message:
                 return role_message
         return self.default_leave_message
+
+    def _get_matched_role(self, player: Player) -> Optional[str]:
+        player_key = str(player.unique_id).lower()
+        if player_key in self._role_match_cache:
+            return self._role_match_cache[player_key]
+
+        for role_name in self.role_join_messages:
+            if self.has_role(player, role_name):
+                self._role_match_cache[player_key] = role_name
+                return role_name
+
+        for role_name in self.role_leave_messages:
+            if self.has_role(player, role_name):
+                self._role_match_cache[player_key] = role_name
+                return role_name
+
+        self._role_match_cache[player_key] = None
+        return None
 
     def has_role(self, player: Player, role_name: str) -> bool:
         role_lower = role_name.lower()
         if role_lower in {"op", "admin"}:
             return bool(getattr(player, "is_op", False))
 
-        permission = self.role_permission_cache.get(role_name)
+        permission = self.role_permission_cache.get(role_lower)
         if permission is None:
             permission = f"euphoriamessages.role.{role_lower}"
 
@@ -1240,32 +1296,37 @@ class WelcomeMessageListener:
         result = message
 
         player_name = player.name
-        display_name = getattr(player, "name_tag", None) or player_name
-        result = (
-            result.replace("{player}", player_name)
-            .replace("{name}", player_name)
-            .replace("{displayname}", display_name)
-        )
+        if "{player}" in result or "{name}" in result or "{displayname}" in result:
+            display_name = getattr(player, "name_tag", None) or player_name
+            result = (
+                result.replace("{player}", player_name)
+                .replace("{name}", player_name)
+                .replace("{displayname}", display_name)
+            )
 
-        result = result.replace("{ping}", str(getattr(player, "ping", "0")))
+        if "{ping}" in result:
+            result = result.replace("{ping}", str(getattr(player, "ping", "0")))
 
-        level = getattr(player, "level", None)
-        world_name = getattr(level, "name", "unknown") if level is not None else "unknown"
-        result = result.replace("{world}", str(world_name))
+        if "{world}" in result:
+            level = getattr(player, "level", None)
+            world_name = getattr(level, "name", "unknown") if level is not None else "unknown"
+            result = result.replace("{world}", str(world_name))
 
-        game_mode = getattr(player, "game_mode", None)
-        if game_mode is None:
-            game_mode_str = "unknown"
-        else:
-            game_mode_str = getattr(game_mode, "name", str(game_mode))
-        result = result.replace("{gamemode}", str(game_mode_str))
+        if "{gamemode}" in result:
+            game_mode = getattr(player, "game_mode", None)
+            if game_mode is None:
+                game_mode_str = "unknown"
+            else:
+                game_mode_str = getattr(game_mode, "name", str(game_mode))
+            result = result.replace("{gamemode}", str(game_mode_str))
 
-        address = getattr(player, "address", None)
-        if address is None:
-            ip_value = "unknown"
-        else:
-            ip_value = getattr(address, "hostname", None) or str(address)
-        result = result.replace("{ip}", ip_value)
+        if "{ip}" in result:
+            address = getattr(player, "address", None)
+            if address is None:
+                ip_value = "unknown"
+            else:
+                ip_value = getattr(address, "hostname", None) or str(address)
+            result = result.replace("{ip}", ip_value)
 
         if self.time_based_greetings_enabled and "{greeting}" in result:
             result = result.replace("{greeting}", self.get_time_based_greeting())
@@ -1472,7 +1533,8 @@ class WelcomeMessageListener:
                     )
 
     def send_preview(self, player: Player, preview_type: str) -> None:
-        if preview_type.lower() == "join":
+        normalized_type = preview_type.lower()
+        if normalized_type == "join":
             message = self.get_join_message_for_player(player)
             message = self.format_message(
                 message, player, self.player_last_seen.get(str(player.unique_id).lower())
@@ -1481,7 +1543,7 @@ class WelcomeMessageListener:
             player.send_message(message)
             return
 
-        if preview_type.lower() == "leave":
+        if normalized_type == "leave":
             message = self.get_leave_message_for_player(player)
             message = self.format_message(
                 message, player, self.player_last_seen.get(str(player.unique_id).lower())
@@ -1494,10 +1556,11 @@ class WelcomeMessageListener:
 
 
 class EuphoriaMessagesPlugin(Plugin):
-    VERSION = "1.0.1"
+    VERSION = "1.0.4"
     UPDATE_CHECK_TICK_SECONDS = 60
+    PERMISSION_LOG_COOLDOWN_SECONDS = 30
     prefix = "EuphoriaMessages"
-    api_version = "0.6"
+    api_version = "0.11"
     load = "POSTWORLD"
     authors = ["Rep Graphics"]
     description = "Advanced join/leave messages"
@@ -1577,6 +1640,8 @@ class EuphoriaMessagesPlugin(Plugin):
         self._update_backoff_until: Optional[float] = None
         self._next_update_check_at: Optional[float] = None
         self._update_checker_task_started = False
+        self._permission_denied_counts: dict[str, int] = {}
+        self._permission_denied_last_logged_at: dict[str, float] = {}
 
     def on_enable(self) -> None:
         self.save_default_config()
@@ -1620,6 +1685,33 @@ class EuphoriaMessagesPlugin(Plugin):
         sender.send_message(colorize("&e/em info &f- Show plugin information"))
         sender.send_message(colorize("&e/em broadcast <msg> &f- Broadcast a message"))
         sender.send_message(colorize("&e/em preview <join|leave> &f- Preview your message"))
+
+    def track_command_permission_denied(
+        self,
+        sender: CommandSender,
+        permission: str,
+        subcommand: str,
+    ) -> None:
+        sender_name = str(getattr(sender, "name", "unknown") or "unknown")
+        normalized_permission = permission.lower().strip() if permission else "unknown"
+        normalized_subcommand = subcommand.lower().strip() if subcommand else "unknown"
+        key = f"{sender_name.lower()}|{normalized_permission}|{normalized_subcommand}"
+
+        denied_count = self._permission_denied_counts.get(key, 0) + 1
+        self._permission_denied_counts[key] = denied_count
+
+        now = time.time()
+        last_logged = self._permission_denied_last_logged_at.get(key)
+        if (
+            last_logged is None
+            or now - last_logged >= self.PERMISSION_LOG_COOLDOWN_SECONDS
+        ):
+            self._permission_denied_last_logged_at[key] = now
+            self.logger.warning(
+                "Permission denied for command access: "
+                f"sender={sender_name}, permission={normalized_permission}, "
+                f"subcommand={normalized_subcommand}, count={denied_count}"
+            )
 
     def _configure_update_checker(self, initial: bool) -> None:
         config = self.config.get("update-checker", {})
